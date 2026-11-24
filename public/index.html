@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LLM Gateway — Cost, Privacy & Failover Dashboard</title>
+  <style>
+    * { box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; }
+    body { margin: 0; background: #0f172a; color: #e2e8f0; padding: 24px; }
+    .container { max-width: 1050px; margin: 0 auto; }
+    header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+    h1 { margin: 0; font-size: 1.5rem; color: #f8fafc; }
+    .badge { background: #064e3b; color: #34d399; padding: 6px 12px; border-radius: 999px; font-size: 0.85rem; font-weight: 600; }
+
+    /* KPI Cards Grid */
+    .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 24px; }
+    .card { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 16px; }
+    .card .label { font-size: 0.8rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em; }
+    .card .value { font-size: 1.7rem; font-weight: 700; margin-top: 6px; color: #f8fafc; }
+    .card .sub { font-size: 0.8rem; color: #38bdf8; margin-top: 4px; }
+
+    /* Playground Box */
+    .panel { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 20px; margin-bottom: 24px; }
+    .panel h2 { margin: 0 0 12px 0; font-size: 1.1rem; }
+    textarea { width: 100%; height: 85px; background: #0f172a; color: #f8fafc; border: 1px solid #475569; border-radius: 8px; padding: 12px; font-size: 0.95rem; resize: vertical; }
+    .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; align-items: center; }
+    button { background: #2563eb; color: white; border: none; padding: 10px 18px; border-radius: 8px; font-weight: 600; cursor: pointer; }
+    button:hover { background: #1d4ed8; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    button.preset { background: #334155; font-size: 0.82rem; padding: 8px 12px; }
+    button.preset:hover { background: #475569; }
+
+    .reply-box { margin-top: 16px; background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 14px; display: none; }
+    .meta-tags { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+    .tag { font-size: 0.78rem; padding: 4px 10px; border-radius: 6px; background: #1e293b; border: 1px solid #475569; }
+    .tag.hit { background: #064e3b; border-color: #10b981; color: #6ee7b7; }
+    .tag.pii { background: #78350f; border-color: #f59e0b; color: #fcd34d; }
+    .reply-text { white-space: pre-wrap; line-height: 1.5; color: #e2e8f0; }
+
+    /* Telemetry Table */
+    table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+    th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid #334155; }
+    th { color: #94a3b8; font-weight: 600; }
+    .pill-hit { color: #34d399; font-weight: 600; }
+    .pill-miss { color: #94a3b8; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div>
+        <h1>LLM Gateway Control Plane</h1>
+        <div style="color:#94a3b8; font-size:0.9rem; margin-top:4px;">Privacy Redaction • Semantic/Exact Cache • Model Failover • Telemetry</div>
+      </div>
+      <span class="badge">● Gateway Online</span>
+    </header>
+
+    <!-- 5 Analytics KPI Cards -->
+    <div class="kpis">
+      <div class="card">
+        <div class="label">Total Requests</div>
+        <div class="value" id="kpiTotal">0</div>
+        <div class="sub" id="kpiSplit">0 hits / 0 misses</div>
+      </div>
+      <div class="card">
+        <div class="label">Cache Hit Rate</div>
+        <div class="value" id="kpiHitRate">0.0%</div>
+        <div class="sub">Zero-token responses</div>
+      </div>
+      <div class="card">
+        <div class="label">Tokens Saved</div>
+        <div class="value" id="kpiSaved">0</div>
+        <div class="sub" id="kpiSpent">0 tokens spent</div>
+      </div>
+      <div class="card">
+        <div class="label">PII Leaks Blocked</div>
+        <div class="value" id="kpiPii">0</div>
+        <div class="sub">Emails, phones, keys masked</div>
+      </div>
+      <div class="card">
+        <div class="label">Avg Latency</div>
+        <div class="value" id="kpiLatency">0 ms</div>
+        <div class="sub">End-to-end gateway speed</div>
+      </div>
+    </div>
+
+    <!-- Interactive Gateway Playground -->
+    <div class="panel">
+      <h2>Gateway Prompt Playground</h2>
+      <textarea id="promptInput">Write a 1-sentence follow-up for customer Rahul at rahul@example.com or 9876543210.</textarea>
+      <div class="actions">
+        <button id="sendBtn" onclick="sendPrompt()">Send Through Gateway</button>
+        <button class="preset" onclick="setPreset('Write a 1-sentence follow-up for customer Rahul at rahul@example.com or 9876543210.')">Test PII Masking</button>
+        <button class="preset" onclick="setPreset('Explain what an LLM Gateway is in one short sentence.')">Test Cache Speed</button>
+      </div>
+
+      <div class="reply-box" id="replyBox">
+        <div class="meta-tags" id="metaTags"></div>
+        <div class="reply-text" id="replyText"></div>
+      </div>
+    </div>
+
+    <!-- Recent Requests Log Table -->
+    <div class="panel">
+      <h2>Recent Request Telemetry (Last 10)</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Model</th>
+            <th>Cache</th>
+            <th>PII Masked</th>
+            <th>Latency</th>
+            <th>Tokens Spent</th>
+            <th>Tokens Saved</th>
+          </tr>
+        </thead>
+        <tbody id="logsBody">
+          <tr><td colspan="7" style="color:#94a3b8;">No requests recorded yet. Send a prompt above!</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    function setPreset(text) {
+      document.getElementById("promptInput").value = text;
+    }
+
+    async function loadStats() {
+      try {
+        const res = await fetch("/v1/stats");
+        const data = await res.json();
+        const s = data.summary;
+
+        document.getElementById("kpiTotal").textContent = s.totalRequests;
+        document.getElementById("kpiSplit").textContent = `${s.cacheHits} hits / ${s.cacheMisses} misses`;
+        document.getElementById("kpiHitRate").textContent = s.cacheHitRate;
+        document.getElementById("kpiSaved").textContent = s.totalTokensSaved;
+        document.getElementById("kpiSpent").textContent = `${s.totalTokensSpent} tokens spent`;
+        document.getElementById("kpiPii").textContent = s.totalPiiMasked;
+        document.getElementById("kpiLatency").textContent = `${s.avgLatencyMs} ms`;
+
+        const tbody = document.getElementById("logsBody");
+        if (data.recentLogs.length > 0) {
+          tbody.innerHTML = data.recentLogs.map(row => `
+            <tr>
+              <td>${new Date(row.timestamp).toLocaleTimeString()}</td>
+              <td>${row.model}</td>
+              <td class="${row.cached ? 'pill-hit' : 'pill-miss'}">${row.cached ? 'CACHE HIT' : 'MISS'}</td>
+              <td>${row.piiRedacted}</td>
+              <td>${row.latencyMs} ms</td>
+              <td>${row.tokensTotal}</td>
+              <td>${row.tokensSaved}</td>
+            </tr>
+          `).join("");
+        }
+      } catch (err) {
+        console.error("Failed to load stats:", err);
+      }
+    }
+
+    async function sendPrompt() {
+      const prompt = document.getElementById("promptInput").value.trim();
+      if (!prompt) return;
+
+      const btn = document.getElementById("sendBtn");
+      btn.disabled = true;
+      btn.textContent = "Routing through gateway...";
+
+      try {
+        const res = await fetch("/v1/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt })
+        });
+        const data = await res.json();
+
+        const replyBox = document.getElementById("replyBox");
+        const metaTags = document.getElementById("metaTags");
+        const replyText = document.getElementById("replyText");
+        replyBox.style.display = "block";
+
+        if (!res.ok) {
+          metaTags.innerHTML = `<span class="tag pii">Error ${res.status}</span>`;
+          replyText.textContent = JSON.stringify(data.error || data, null, 2);
+        } else {
+          const g = data.gateway;
+          metaTags.innerHTML = `
+            <span class="tag">Model: <b>${g.model}</b></span>
+            <span class="tag ${g.cached ? 'hit' : ''}">${g.cached ? '⚡ CACHE HIT' : '🌐 LIVE API CALL'}</span>
+            <span class="tag ${g.piiRedacted > 0 ? 'pii' : ''}">🛡️ PII Redacted: ${g.piiRedacted}</span>
+            <span class="tag">⏱️ ${g.latencyMs} ms</span>
+            <span class="tag">🪙 Spent: ${g.tokens.total} | Saved: ${g.tokensSaved}</span>
+          `;
+          replyText.textContent = data.reply;
+        }
+
+        await loadStats();
+      } catch (err) {
+        alert("Request failed: " + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Send Through Gateway";
+      }
+    }
+
+    // Load initial dashboard stats when the page opens
+    loadStats();
+  </script>
+</body>
+</html>
